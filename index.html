@@ -1,0 +1,544 @@
+<!--
+Navigation interface for Autonomous Sea Bed Scanner
+
+Authors: Darshana Adikari, Yasinda Nimalasuriya, Nipuna Wickramanayake, Mihiravi Samaranayake, Malaka Sirinimal
+
+Copyright 2014 Darshana Adikari, Yasinda Nimalasuriya, Nipuna Wickramanayake, Mihiravi Samaranayake, Malaka Sirinimal
+except otherwise stated.
+
+Map API : Google(R) Maps API V3 (c) Google and other owners  
+-->
+
+<!DOCTYPE html>
+<html>
+  <head>
+    
+    <script src="static/jquery-1.11.0.min.js"></script>
+    <script src="static/jquery-migrate-1.2.1.min.js"></script>
+    <script type="text/javascript" src="static/jQueryRotate.js"></script>
+    <script type="text/javascript" src="static/jquery-ui-1.10.4.custom/js/jquery-ui-1.10.4.custom.js"></script>
+    <link href="static/jquery-ui-1.10.4.custom/css/smoothness/jquery-ui-1.10.4.custom.min.css" rel="stylesheet" type="text/css">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+    <style type="text/css">
+      html { height: 100% }
+      body { 
+        height: 100%; 
+        margin: 0; padding: 0 ;
+        background-color:#3F7F71;
+      }
+      #map_canvas { height: 500px;width:700px; float:left;}
+      #main_container{
+        margin:10px;
+      }
+      #marker_data{
+        font:"arial";
+        margin:20px;
+        padding:10px;
+/*      border:1px solid black; */
+        max-width:600px;
+      }
+      #map_controls{
+/*       border:1px solid black; */
+        margin-left: 720px;
+      }
+      #gps_data,#marker_list{
+      padding-left:5px;
+      border:1px solid black;
+      max-height:180px;
+      overflow-y:scroll;
+      font-size:11px;
+      background-color:#EEEEEE;
+      }
+      #compass_container{
+      float:left;
+        margin:20px 0 10px 0;
+        background-color:#EEEEEE;
+      }
+      #controller_status{
+      margin:20px 0 10px 280px;
+      height:280px;
+      width:280px;
+      border:1px black solid;
+      background-color:#EEEEEE;
+      }
+      #compass{
+      border:1px solid black;
+      width:240px;
+      height:280px;
+      background:url('static/compass_dial.png') no-repeat;
+      }
+      #compass_pointer{
+      height:240px;
+      width:240px;
+      }
+      #bearing{
+      margin-left:5px;
+      }
+      #gpsStatus,#upload_info{
+      padding:5px;
+      background-color:#C3622F;
+      margin:2px 0 2px 0;
+      }
+    </style>
+    <script type="text/javascript"
+      src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAQIk4yGCSR2iBG0rNB_T0MUmQqVhqucPo&sensor=true">
+    </script>
+    <script type="text/javascript">
+      
+      var numMarkers=0;
+      var numLocationMarkers=0;
+      var markers=new Array();
+      var locationMarkers=new Array();
+      var centerLatLng;
+      var map;
+      var poly;
+      var polyOne
+      var path;
+      var locationPath;
+      var gpsLattitude;
+      var gpsLongitude;
+      var currentHeading;
+      var gettingGPS=false
+      var gettingHeading=false
+      var successGPS=0
+      var successHeading=0
+      var GPSRequests=0
+      var HeadingRequests=0
+      var blockTransmission=true;
+      var currentPosNumber;
+      var currentDist;
+      var gpsLocked=false;
+      var sec = 0;      
+      var turn=0;
+      if (!window.console) console = {};
+      console.log = console.log || function(){};
+      console.warn = console.warn || function(){};
+      console.error = console.error || function(){};
+      console.info = console.info || function(){};
+      
+      jQuery(document).ready(function(){
+        jQuery( "input[type=submit], a, button" )
+        .button();
+        jQuery('#startNavigation').button('disable');
+        blockTransmission=false;
+        
+
+        
+        setInterval( function(){
+            jQuery("#timeOut").html("Last Update "+pad(parseInt(sec/60,10))+":"+pad(++sec%60)+" ago");
+            if(sec>10){
+              jQuery("#timeOut").css({"background-color":"#C3622F"});
+            }
+            
+        }, 1000);
+      });
+      function resetTimeOut(){
+        jQuery("#timeOut").css({"background-color":"transparent"});
+        sec=0;
+      }
+      function pad ( val ) { return val > 9 ? val : "0" + val; }
+      
+      (function poll(){
+      
+          setTimeout(function(){
+            if(!blockTransmission){
+              blockTransmission=true;
+              var sendData={}
+              
+              if(turn<2){
+                sendData= { heading: "heading"}
+                HeadingRequests++;
+                turn++;
+              }else{
+                turn=0
+                sendData= { gps: "gpco"}
+                GPSRequests++;
+              }
+              
+              
+              jQuery.ajax({ url: "/",
+                success: function(data){
+                
+                //Update your dashboard gauge
+                  if(data){
+        //            console.log("lat: "+data.lattitude+" lon: "+data.longitude);
+                    if((typeof data.lattitude !=="undefined") && (!(data.time=="N" ||data.lattitude=="N.N" || data.longitude=="N.N"))){
+         //             console.log("lat: "+data.lattitude+" lon: "+data.longitude);
+                      gpsLattitude=data.lattitude;//gpsToDecimalDegree(
+                      gpsLongitude=data.longitude;
+                      if(gpsLattitude!=0 && gpsLongitude!=0){
+                        gpsLocked=true;
+                        jQuery( "#startNavigation" ).button( "enable" );
+                        jQuery("#gps_data").prepend("<p>timeStamp:"+data.time+" ; Lattitude: "+gpsLattitude+" ; Longitude: "+gpsLongitude);
+                        jQuery("#gpsStatus").css({"background-color":"#99CC33"});
+                        addMarker(new google.maps.LatLng(gpsLattitude,gpsLongitude),'#1b7ccf');
+                        
+                        map.setCenter(new google.maps.LatLng(gpsLattitude,gpsLongitude));
+                        plotPath(polyOne,locationPath,locationMarkers,numLocationMarkers);
+                          resetTimeOut();
+                          successGPS++;
+                      }else if(data.longitude=="N.N"){
+                        jQuery("#gpsStatus").css({"background-color":"#D64343"});
+                        jQuery( "#startNavigation" ).button( "disable" );
+                        gpsLocked=false;
+                      }
+                    }else{
+                     
+                    }
+                    if(typeof data.heading !=="undefined"){
+                      
+                      currentPosNumber=parseInt(data.pos);
+                      if(data.distance !=="reached"){
+                        
+                        jQuery("#controller_data").html("Destination :"+(currentPosNumber+1)+" Distance :"+data.distance);
+                      }else{
+                        jQuery("#controller_data").html("Destination :"+(currentPosNumber+1)+" Target Reached!!");
+                      }
+                      currentHeading=parseInt(data.heading);
+                      if (currentHeading< 0) {
+                        currentHeading = 360 + currentHeading;
+                      }
+                      jQuery("#heading").html(data.heading);
+    //            jQuery("#compass_pointer").rotate(parseInt(data.heading));
+                      jQuery("#compass_pointer").css({
+                        "transform":"rotate("+currentHeading+"deg)",
+                        "-ms-transform":"rotate("+currentHeading+"deg)", /* IE 9 */
+                        "-webkit-transform":"rotate("+currentHeading+"deg)" /* Opera, Chrome, and Safari */
+                        
+                      });
+                      
+                      resetTimeOut();
+                      successHeading++;
+                      //console.log(currentHeading);
+                    }
+                  
+                  }else{
+                    
+                  }
+
+                },dataType: "json", 
+                type:"POST",
+                data: sendData,
+                timeout: 20000,
+                complete:function(){
+                  blockTransmission=false;
+                  poll();
+                },
+              });
+           jQuery('#packetLoss').html("<p>GPS req:"+GPSRequests+" GPS Loss %: "+roundToTwo((GPSRequests - successGPS)/HeadingRequests*100)+
+             "% ; Heading req: "+HeadingRequests+" Heading loss : "+roundToTwo((HeadingRequests - successHeading)/HeadingRequests*100)+"%</p>");
+//             jQuery('#packetLoss').html("<p>GPS req:"+GPSRequests+" GPS Loss: "+(GPSRequests - successGPS)+
+//               "% ; Heading req: "+HeadingRequests+" Heading loss : "+(HeadingRequests - successHeading)+"%</p>");
+              
+            }
+          },1000);
+          
+      })();
+      
+          
+      
+      var lineSymbol = {
+        path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW
+      };
+      function gpsToDecimalDegree(gpsCoord){
+
+        if(!(typeof gpsCoord === "undefined") && gpsCoord.indexOf(".")>1){
+          var degrees=parseInt(gpsCoord.substring(0,(gpsCoord.indexOf(".")-2)));
+          var decimals=parseFloat(gpsCoord.substring((gpsCoord.indexOf(".")-2)))/60;
+          return degrees+decimals;
+        }else{
+          return 0;
+        }
+      }
+      /*
+      function decimalDegreeToGPS(gpsCoord){
+        gpsCoord=gpsCoord.toString();
+        if(!(typeof gpsCoord === "undefined") && gpsCoord.indexOf(".")>1){
+          var degrees=parseInt(gpsCoord.substring(0,(gpsCoord.indexOf("."))))*100;
+          var decimals=parseFloat(gpsCoord.substring((gpsCoord.indexOf("."))))*60;
+          return degrees+decimals;
+        }else{
+          return 0;
+        }
+      }
+      */
+      function initialize() {
+        centerLatLng=new google.maps.LatLng(14.079524,100.614026);
+        var mapOptions = {
+          center:centerLatLng ,
+          zoom: 19
+        };
+        map= new google.maps.Map(document.getElementById("map_canvas"),
+            mapOptions);
+         var polyOptions = {
+            strokeColor: '#33A200',
+            strokeOpacity: 1.0,
+            strokeWeight: 2,
+            icons: [{
+              icon: lineSymbol,
+              
+              offset: '100%',
+              repeat:'10%',
+            }],
+          };
+          poly = new google.maps.Polyline(polyOptions);
+          poly.setMap(map);
+          var polyOneOptions = {
+            strokeColor: '#FF3370',
+            strokeOpacity: 1.0,
+            strokeWeight: 2,
+            icons: [{
+              icon: lineSymbol,
+              
+              offset: '100%',
+              repeat:'10%',
+            }],
+          };
+          polyOne = new google.maps.Polyline(polyOneOptions);
+          polyOne.setMap(map);
+      }
+      google.maps.event.addDomListener(window, 'load', initialize);
+      
+      function addNumberMarker(position){
+        
+        if(!(typeof gpsLattitude ==="undefined" && typeof gpsLongitude ==="undefined" )){
+          position=new google.maps.LatLng(gpsLattitude,gpsLongitude);
+        }
+        
+        markers[numMarkers] = new google.maps.Marker({
+          position: position,
+          map: map,
+          draggable:true,
+          icon:'static/mapicons/number_'+numMarkers.toString()+'.png',
+          title:"Drag me!"
+        });
+        
+        numMarkers++;
+        updateMarkerList();
+      }
+      function addMarker(position,color){
+        if(numLocationMarkers>400){
+          numLocationMarkers=0;
+        }
+        if(numLocationMarkers>0){
+          locationMarkers[numLocationMarkers-1].setIcon({
+              
+              path: google.maps.SymbolPath.CIRCLE,
+              fillColor: 'red',
+              strokeColor: color,
+              fillOpacity:'80%',
+              scale: 2
+          });
+        }
+        locationMarkers[numLocationMarkers] = new google.maps.Marker({
+          position: position,
+          icon: {
+            path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+            fillColor: color,
+            strokeColor: color,
+            fillOpacity:'80%',
+            scale: 2
+          },
+          draggable: false,
+          map: map
+        });
+        numLocationMarkers++;
+      }
+      function printMarkerLocations(){
+        var locationString="";
+        for(var i=0;i<numMarkers;i++){
+          locationString+="<p>"+i.toString()+" : "+markers[i].position+"</p>";
+        }
+        document.getElementById("marker_data").innerHTML=locationString;
+      }
+      function plotPath(thePoly,thePath,theMarkers,theNumMarkers){
+        thePath=[];
+        for(var i=0;i<theNumMarkers;i++){
+          thePath.push(theMarkers[i].position);
+        }
+        
+        thePoly.setPath(thePath);
+        
+        updateMarkerList();
+      }
+      
+      function resetPackCount(){
+        successGPS=0;
+        successHeading=0;
+        GPSRequests=0;
+        HeadingRequests=0;
+      }
+      function resetGps(){
+        jQuery('#gps_data').html('');
+      }
+      function roundToTwo(num) {    
+        return +(Math.round(num + "e+2")  + "e-2");
+      }
+      function roundToSix(num) {    
+        return +(Math.round(num + "e+6")  + "e-6");
+      }
+      
+      function updateMarkerList(){
+        jQuery('#marker_list').html('');
+        for(i=0;i<numMarkers;i++){
+          var markerPos=markers[i].getPosition();
+          var dist=0;
+          if(i>0){
+            
+         
+            var markerPos1=markers[i-1].getPosition();
+            dist=1000*calcDistance(markerPos.lat(),markerPos.lng(),markerPos1.lat(),markerPos1.lng());
+            jQuery('#marker_list').append('<p> Distance ('+(i-1)+' to '+i+') :'+dist+'</p>'); 
+          }
+          
+          jQuery('#marker_list').append('<p>Lattitude: '+roundToSix(markerPos.lat()).toString()+' Longitude: '+roundToSix(markerPos.lng()).toString()+'</p>'); 
+        }
+      }
+      function startNavigation(){
+        jQuery.ajax({ url: "/",
+          success: function(data){
+          //Update your dashboard gauge
+            if(data){
+              jQuery("#navigationStart").css({'background-color':'#339999'});
+              jQuery("#navigationStart").html("Navigation Started");
+              resetTimeOut();
+            }else{      
+            }
+
+          }, dataType: "json", 
+          type:"POST",
+          data: { start: "start"},
+          timeout: 30000,
+        });
+      }
+      function upload(){
+        blockTransmission=true;
+        transmissionNumber=numMarkers;
+        iterator=0;
+        var successAttempts=0;
+        var interval = setInterval(function() {
+          
+          if(iterator<transmissionNumber) {
+//            
+              jQuery("#upload_info").html("Markers Uploading.....");
+              jQuery("#upload_info").css({"background-color":"#99CCCC"});
+              var markerPos=markers[iterator].getPosition();
+              var latt=roundToSix(markerPos.lat());
+              var lng=roundToSix(markerPos.lng());
+              console.log("lat: "+latt+" lon: "+lng);
+              jQuery.ajax({ url: "/",
+              success: function(data){
+              //Update your dashboard gauge
+                if(data){
+                  resetTimeOut();
+                  if(!(typeof data.mark === "undefined")){
+                    console.log("Success!!!:"+data.mark);
+                    console.log("try"+(iterator-1));
+                    if(parseInt(data.mark)!=(iterator-1)){
+                      jQuery("#upload_info").css({"background-color":"#D64343"});
+                      var r=confirm("send failed, retry?");
+                      if(r==true){
+                        iterator--;
+                      }
+                    }else{   
+                      jQuery("#upload_info").html("Markers Uploading.....  "+(parseInt(data.mark) +1)+"/"+transmissionNumber+" Uploaded Successfully");
+                      successAttempts++;
+                      
+                    }
+                  }else{
+                    jQuery("#upload_info").css({"background-color":"#D64343"});
+                    var r=confirm("send failed, retry?");
+                    if(r==true){
+                      iterator--;
+                    }
+                  }
+                }else{
+                    jQuery("#upload_info").css({"background-color":"#D64343"});
+                    var r=confirm("send failed, retry?");
+                    if(r==true){
+                      iterator--;
+                    }
+                  
+                }
+
+              }, error:function(){
+                jQuery("#upload_info").css({"background-color":"#D64343"});
+                var r=confirm("send failed, retry?");
+                if(r==true){
+                  iterator--;
+                }
+              },dataType: "json", 
+              type:"POST",
+              data: { marker: "marker",markernumber:iterator,lattitude:latt.toString(),longitude: lng.toString()},
+              timeout: 2000,
+              
+            });
+            iterator++;
+          }else{
+            console.log("att :"+successAttempts+" pl"+transmissionNumber);
+            if(successAttempts==transmissionNumber){
+              jQuery("#upload_info").html((successAttempts)+"/"+transmissionNumber+" Markers Uploaded Successfully");
+              jQuery("#upload_info").css({"background-color":"#99CC33"});
+            }
+            clearInterval(interval);
+          }
+        }, 1500);
+        
+        blockTransmission=false;
+      }
+      function calcDistance(lattitude1,longitude1,lattitude2,longitude2){
+        return Math.sqrt(Math.pow((lattitude1-lattitude2),2)+Math.pow((longitude1-longitude2),2));
+      }
+      
+    </script>
+  </head>
+  <body>
+    <div id="main_container">
+      <div id="map_canvas"></div>
+      
+      <div id="map_controls">
+        <a id="addNumberMarker" href="#" onclick="addNumberMarker(centerLatLng)">add marker</a>
+        <a id="printMarkerLocations" href="#" onclick="printMarkerLocations()">print markers</a>
+        <a id="plotPath" href="#" onclick="plotPath(poly,path,markers,numMarkers)">Plot Path</a>
+        
+        <a id="upload" href="#" onclick="upload()">Upload to Boat</a>
+        <a id="resetPackCount" href="#" onclick="resetPackCount()">reset packet counter</a>
+        <a id="resetGPS" href="#" onclick="resetGps()">reset gps</a>
+        <a id="startNavigation" href="#" onclick="startNavigation()">Start Navigation</a>
+
+        <div id="compass_container">
+          <div id="compass">
+            <img id="compass_pointer" src="static/compass.png"></img>
+              <p id="bearing">Bearing (relative to North) :<span id="heading"></span>&#176</p>
+          </div>
+        
+        </div>
+        <div id="controller_status">
+          <p id="controller_data">
+          </p>
+          <p id="timeOut">
+          </p>
+          <p id="navigationStart">
+          </p>
+          <p id="upload_info">
+            Markers Not Uploaded
+          </p>
+          
+          <p id="gpsStatus">GPS</p>
+        </div>
+        <div id="marker_list">
+          
+        </div>
+        <br>
+        <div id="gps_data">
+        
+        </div>
+        <div id="packetLoss"></div>
+        
+      </div>
+      <div id="console">
+        
+      </div>
+    </div>
+  </body>
+</html>
